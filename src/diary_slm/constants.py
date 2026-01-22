@@ -65,7 +65,7 @@ MODEL_PRESETS: Final[dict[str, str]] = {
     "qwen-14b": "mlx-community/Qwen2.5-14B-Instruct-4bit",
     "llama-8b": "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit",
     "gemma-9b": "mlx-community/gemma-2-9b-it-4bit",
-    "glm-4.7-flash": "zai-org/GLM-4.7-Flash",  # 200K input, 128K output context
+    "glm-4.7-flash": "mlx-community/GLM-4.7-Flash-4bit",  # 30B params, 128K context, ~17GB
 }
 
 # Default temperature for generation (0.7 balances creativity and coherence)
