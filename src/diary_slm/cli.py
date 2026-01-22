@@ -513,6 +513,143 @@ def tags(db_path: str | None) -> None:
 
 
 # =============================================================================
+# Token Counting Command
+# =============================================================================
+
+
+@main.command()
+@click.argument("period", required=False)
+@click.option("--db", "db_path", help="Path to Bear database.")
+@click.option("--tag", "-t", help="Filter notes by tag.")
+@click.option(
+    "--period-type", "-p",
+    type=click.Choice(["month", "quarter", "half_year", "year"]),
+    default="quarter",
+)
+@click.option("--model", "-m", default=DEFAULT_MODEL_ID, help="Model for accurate tokenization.")
+@click.option("--all", "show_all", is_flag=True, help="Show token counts for all periods.")
+def tokens(
+    period: str | None,
+    db_path: str | None,
+    tag: str | None,
+    period_type: PeriodType,
+    model: str,
+    show_all: bool,
+) -> None:
+    """Count exact tokens for diary periods using the model's tokenizer.
+
+    Shows both estimated (fast, no model load) and exact (requires model) token counts.
+
+    Examples:
+
+        diary-slm tokens 2024-Q1 -t diary
+
+        diary-slm tokens --all -t diary
+
+        diary-slm tokens 2024-Q1 -t diary --model qwen-7b
+    """
+    processor = _create_processor(db_path, tag)
+
+    if show_all:
+        # Show token counts for all periods
+        chunks = processor.get_chunks_by_period(period_type)
+
+        if not chunks:
+            console.print("[yellow]No periods found.[/yellow]")
+            return
+
+        console.print(f"\n[bold]Token Counts by Period ({period_type})[/bold]")
+        console.print("[dim]Estimated tokens use ~4 chars/token heuristic[/dim]\n")
+
+        table = Table()
+        table.add_column("Period", style="cyan")
+        table.add_column("Notes", justify="right")
+        table.add_column("Characters", justify="right")
+        table.add_column("Est. Tokens", justify="right")
+
+        total_chars = 0
+        total_est_tokens = 0
+
+        for chunk in chunks:
+            total_chars += chunk.total_chars
+            total_est_tokens += chunk.estimated_tokens
+            table.add_row(
+                chunk.period_name,
+                str(chunk.note_count),
+                f"{chunk.total_chars:,}",
+                f"{chunk.estimated_tokens:,}",
+            )
+
+        table.add_section()
+        table.add_row(
+            "[bold]Total[/bold]",
+            str(sum(c.note_count for c in chunks)),
+            f"[bold]{total_chars:,}[/bold]",
+            f"[bold]{total_est_tokens:,}[/bold]",
+        )
+
+        console.print(table)
+
+        # Context fit summary
+        console.print("\n[bold]Context Fit Summary[/bold]")
+        for limit_name, limit in [("128K", 128_000), ("200K", 200_000)]:
+            fits = sum(1 for c in chunks if c.estimated_tokens <= limit * 0.8)
+            console.print(f"  Periods fitting {limit_name} context: {fits}/{len(chunks)}")
+
+    elif period:
+        # Show detailed token count for a specific period
+        chunk = processor.get_chunk_by_name(period, period_type)
+
+        if not chunk:
+            console.print(f"[red]Period not found: {period}[/red]")
+            console.print("Use 'diary-slm tokens --all' to see available periods.")
+            sys.exit(1)
+
+        console.print(f"\n[bold]Token Count: {period}[/bold]\n")
+
+        # Basic stats (no model needed)
+        console.print("[cyan]Basic Statistics (no model required):[/cyan]")
+        console.print(f"  Notes: {chunk.note_count}")
+        console.print(f"  Characters: {chunk.total_chars:,}")
+        console.print(f"  Estimated tokens: {chunk.estimated_tokens:,}")
+
+        # Ask if user wants exact count
+        console.print(f"\n[cyan]Loading model for exact token count...[/cyan]")
+
+        try:
+            model_mgr = ModelManager(model)
+            exact_tokens = model_mgr.count_tokens(chunk.formatted_text)
+
+            console.print(f"\n[green]Exact token count ({model_mgr.model_name}):[/green]")
+            console.print(f"  [bold]{exact_tokens:,}[/bold] tokens")
+
+            # Show difference
+            diff = exact_tokens - chunk.estimated_tokens
+            diff_pct = (diff / chunk.estimated_tokens * 100) if chunk.estimated_tokens else 0
+            diff_sign = "+" if diff > 0 else ""
+            console.print(f"  Difference from estimate: {diff_sign}{diff:,} ({diff_sign}{diff_pct:.1f}%)")
+
+            # Context fit check
+            console.print("\n[cyan]Context Fit:[/cyan]")
+            for limit_name, limit in [("128K", 128_000), ("200K", 200_000)]:
+                safe_limit = int(limit * 0.8)  # 80% to leave room for prompt/response
+                if exact_tokens <= safe_limit:
+                    console.print(f"  {limit_name}: [green]Fits[/green] ({exact_tokens:,} / {safe_limit:,} safe limit)")
+                else:
+                    over = exact_tokens - safe_limit
+                    console.print(f"  {limit_name}: [red]Exceeds by {over:,} tokens[/red]")
+
+        except Exception as e:
+            console.print(f"[yellow]Could not load model for exact count: {e}[/yellow]")
+            console.print("Using estimated token count only.")
+
+    else:
+        console.print("[yellow]Specify a period or use --all to see all periods.[/yellow]")
+        console.print("Example: diary-slm tokens 2024-Q1 -t diary")
+        console.print("Example: diary-slm tokens --all -t diary")
+
+
+# =============================================================================
 # Entry Point
 # =============================================================================
 
