@@ -4,7 +4,7 @@ Analyze your diary entries using local LLMs on Apple Silicon. No cloud, no RAG, 
 
 ## The Idea
 
-Your diary (say, 500k characters/year) is roughly 300k-400k tokens. Modern models like Qwen 2.5 and Llama 3.1 support 128k context windows. Instead of using RAG (which loses context), we split your diary by quarter or half-year and feed it directly into the prompt.
+Your diary (say, 500k characters/year) is roughly 125k tokens (at ~4 chars/token). Modern models like Qwen 2.5 and Llama 3.1 support 128k context windows. Instead of using RAG (which loses context), we split your diary by quarter or half-year and feed it directly into the prompt.
 
 **The result**: The AI has a "god's eye view" of your life during that period. It can see patterns, causality, and connections that retrieval-based approaches would miss.
 
@@ -138,6 +138,7 @@ diary-slm models
 | `qwen-14b` | mlx-community/Qwen2.5-14B-Instruct-4bit |
 | `llama-8b` | mlx-community/Meta-Llama-3.1-8B-Instruct-4bit |
 | `gemma-9b` | mlx-community/gemma-2-9b-it-4bit |
+| `glm-4.7-flash` | mlx-community/GLM-4.7-Flash-4bit (~17GB, 30B params, 128K context) |
 
 Use any mlx-community model:
 
@@ -157,6 +158,7 @@ diary-slm interactive --help  # Interactive session
 diary-slm models              # List model presets
 diary-slm templates           # List analysis templates
 diary-slm tags                # List tags in Bear
+diary-slm tokens              # Count tokens (estimated + exact)
 ```
 
 ### Common Options
