@@ -262,12 +262,14 @@ class BearReader:
 
         query += " ORDER BY ZCREATIONDATE ASC"
 
+        conn = self._get_readonly_connection()
         try:
-            with self._get_readonly_connection() as conn:
-                cursor = conn.execute(query)
-                rows = cursor.fetchall()
+            cursor = conn.execute(query)
+            rows = cursor.fetchall()
         except sqlite3.Error as e:
             raise DatabaseReadError(f"Failed to query notes: {e}") from e
+        finally:
+            conn.close()
 
         notes: list[Note] = []
         for row in rows:
