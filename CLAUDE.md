@@ -14,6 +14,9 @@
 
 ```
 src/diary_slm/
+├── __init__.py       # Package exports & version
+├── constants.py      # Centralized configuration (model presets, token limits, paths)
+├── exceptions.py     # Custom exception hierarchy (11 exception classes)
 ├── bear_reader.py    # SQLite extraction (READ-ONLY)
 ├── processor.py      # Time-based chunking & token estimation
 ├── model.py          # mlx-lm wrapper for inference
@@ -79,7 +82,7 @@ The Bear database is the user's personal data. We MUST:
 
 ### Adding a New Model Preset
 
-1. Add to `DEFAULT_MODELS` dict in `model.py`
+1. Add to `MODEL_PRESETS` dict in `constants.py`
 2. Use the mlx-community HuggingFace format
 
 ## Testing Locally
@@ -94,15 +97,20 @@ diary-slm list
 # Run with a specific tag
 diary-slm list -t diary
 
+# Check token counts (estimated + exact via model tokenizer)
+diary-slm tokens 2024-Q1 -t diary
+
 # Test analysis (requires mlx-lm model download)
 diary-slm analyze 2024-Q1 -q "Summarize this quarter"
 ```
 
 ## Dependencies
 
-- `mlx-lm`: Apple's MLX framework for LLM inference
-- `click`: CLI framework
-- `rich`: Terminal formatting
+- `mlx-lm>=0.19.0`: Apple's MLX framework for LLM inference
+- `click>=8.0.0`: CLI framework
+- `rich>=13.0.0`: Terminal formatting
+
+Dev dependencies: `pytest>=7.0.0`, `ruff>=0.1.0`
 
 ## Git Commits
 
