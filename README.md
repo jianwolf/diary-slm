@@ -40,10 +40,10 @@ This will install `mlx-lm`, `click`, and `rich` as dependencies.
 
 ```bash
 # See all available periods and token counts
-diary-slm list
+python main.py list
 
 # Filter by a specific tag (e.g., your diary tag)
-diary-slm list -t diary
+python main.py list -t diary
 ```
 
 Output shows periods, note counts, and estimated tokens:
@@ -71,24 +71,24 @@ Available Periods (quarter)
 
 ```bash
 # Custom query
-diary-slm analyze 2024-Q1 -q "What were my main struggles this quarter?" -t diary
+python main.py analyze 2024-Q1 -q "What were my main struggles this quarter?" -t diary
 
 # Use a pre-built template
-diary-slm template 2024-Q1 mood -t diary
-diary-slm template 2024-Q1 themes -t diary
-diary-slm template 2024-Q1 advice -t diary
+python main.py template 2024-Q1 mood -t diary
+python main.py template 2024-Q1 themes -t diary
+python main.py template 2024-Q1 advice -t diary
 ```
 
 ### 3. Compare periods
 
 ```bash
-diary-slm compare 2024-Q1 2024-Q2 -q "How did my priorities change?" -t diary
+python main.py compare 2024-Q1 2024-Q2 -q "How did my priorities change?" -t diary
 ```
 
 ### 4. Interactive session
 
 ```bash
-diary-slm interactive 2024-Q1 -t diary
+python main.py interactive 2024-Q1 -t diary
 ```
 
 Then ask multiple questions:
@@ -129,7 +129,7 @@ Default model: `mlx-community/Qwen2.5-7B-Instruct-4bit`
 Available presets:
 
 ```bash
-diary-slm models
+python main.py models
 ```
 
 | Alias | Model |
@@ -143,22 +143,22 @@ diary-slm models
 Use any mlx-community model:
 
 ```bash
-diary-slm analyze 2024-Q1 -q "..." --model mlx-community/Qwen2.5-14B-Instruct-4bit
+python main.py analyze 2024-Q1 -q "..." --model mlx-community/Qwen2.5-14B-Instruct-4bit
 ```
 
 ## CLI Reference
 
 ```bash
-diary-slm --help              # Show all commands
-diary-slm list --help         # List periods
-diary-slm analyze --help      # Analyze with custom query
-diary-slm template --help     # Use analysis template
-diary-slm compare --help      # Compare two periods
-diary-slm interactive --help  # Interactive session
-diary-slm models              # List model presets
-diary-slm templates           # List analysis templates
-diary-slm tags                # List tags in Bear
-diary-slm tokens              # Count tokens (estimated + exact)
+python main.py --help              # Show all commands
+python main.py list --help         # List periods
+python main.py analyze --help      # Analyze with custom query
+python main.py template --help     # Use analysis template
+python main.py compare --help      # Compare two periods
+python main.py interactive --help  # Interactive session
+python main.py models              # List model presets
+python main.py templates           # List analysis templates
+python main.py tags                # List tags in Bear
+python main.py tokens              # Count tokens (estimated + exact)
 ```
 
 ### Common Options
@@ -207,7 +207,7 @@ Make sure Bear is installed and you've created at least one note. The database i
 
 ### "No notes found with tag #diary"
 
-Check your tag name. Use `diary-slm tags` to see all available tags.
+Check your tag name. Use `python main.py tags` to see all available tags.
 
 ### Model download is slow
 
@@ -217,7 +217,7 @@ First run downloads the model (~4GB for 7B 4-bit). Subsequent runs use the cache
 
 Try a smaller model or shorter time period:
 ```bash
-diary-slm analyze 2024-01 -q "..." -p month --model mlx-community/Qwen2.5-3B-Instruct-4bit
+python main.py analyze 2024-01 -q "..." -p month --model mlx-community/Qwen2.5-3B-Instruct-4bit
 ```
 
 ## Contributing

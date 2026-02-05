@@ -21,11 +21,8 @@ dev = [
     "ruff>=0.1.0",
 ]
 
-[project.scripts]
-diary-slm = "diary_slm.cli:main"
-
 [tool.hatch.build.targets.wheel]
-packages = ["src/diary_slm"]
+packages = ["diary_slm"]
 
 [tool.ruff]
 line-length = 100

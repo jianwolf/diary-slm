@@ -5,11 +5,11 @@ All commands are implemented using Click and output is formatted
 using Rich.
 
 Usage:
-    diary-slm list              # List available periods
-    diary-slm analyze PERIOD    # Analyze with custom query
-    diary-slm template PERIOD   # Use analysis template
-    diary-slm compare P1 P2     # Compare two periods
-    diary-slm interactive P     # Interactive session
+    python main.py list              # List available periods
+    python main.py analyze PERIOD    # Analyze with custom query
+    python main.py template PERIOD   # Use analysis template
+    python main.py compare P1 P2     # Compare two periods
+    python main.py interactive P     # Interactive session
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ def _create_processor(db_path: str | None, tag: str | None) -> DiaryProcessor:
         notes = reader.get_notes_by_tag(tag)
         if not notes:
             console.print(f"[yellow]No notes found with tag #{tag}[/yellow]")
-            console.print("Use 'diary-slm tags' to see available tags.")
+            console.print("Use 'python main.py tags' to see available tags.")
             sys.exit(1)
     else:
         notes = reader.get_all_notes()
@@ -90,15 +90,15 @@ def _format_token_count(tokens: int) -> str:
 def main() -> None:
     """Analyze your Bear diary entries using local LLMs.
 
-    diary-slm uses Apple's MLX framework to run language models locally
+    python main.py uses Apple's MLX framework to run language models locally
     on your Mac. It reads your diary entries from Bear and analyzes them
     with full context (no RAG).
 
     Quick start:
 
-        diary-slm list -t diary          # See your diary periods
+        python main.py list -t diary          # See your diary periods
 
-        diary-slm analyze 2024-Q1 \\
+        python main.py analyze 2024-Q1 \\
             -t diary \\
             -q "What patterns do you see?"
     """
@@ -139,9 +139,9 @@ def list_cmd(
 
     Examples:
 
-        diary-slm list
+        python main.py list
 
-        diary-slm list -t diary -p month
+        python main.py list -t diary -p month
     """
     processor = _create_processor(db_path, tag)
 
@@ -224,20 +224,20 @@ def analyze(
     """Analyze a specific diary period with a custom query.
 
     PERIOD is the time period to analyze (e.g., "2024-Q1", "2024-01").
-    Use 'diary-slm list' to see available periods.
+    Use 'python main.py list' to see available periods.
 
     Examples:
 
-        diary-slm analyze 2024-Q1 -q "What were my main struggles?" -t diary
+        python main.py analyze 2024-Q1 -q "What were my main struggles?" -t diary
 
-        diary-slm analyze 2024-01 -p month -q "Summarize this month"
+        python main.py analyze 2024-01 -p month -q "Summarize this month"
     """
     processor = _create_processor(db_path, tag)
     chunk = processor.get_chunk_by_name(period, period_type)
 
     if not chunk:
         console.print(f"[red]Period not found: {period}[/red]")
-        console.print("Use 'diary-slm list' to see available periods.")
+        console.print("Use 'python main.py list' to see available periods.")
         sys.exit(1)
 
     console.print(f"\n[bold]Analyzing {period}[/bold]")
@@ -284,13 +284,13 @@ def template(
     TEMPLATE is one of: summary, mood, themes, growth, relationships,
     advice, timeline, questions.
 
-    Use 'diary-slm templates' to see all available templates.
+    Use 'python main.py templates' to see all available templates.
 
     Examples:
 
-        diary-slm template 2024-Q1 mood -t diary
+        python main.py template 2024-Q1 mood -t diary
 
-        diary-slm template 2024-Q1 summary -t diary
+        python main.py template 2024-Q1 summary -t diary
     """
     processor = _create_processor(db_path, tag)
     chunk = processor.get_chunk_by_name(period, period_type)
@@ -357,9 +357,9 @@ def compare(
 
     Examples:
 
-        diary-slm compare 2024-Q1 2024-Q2 -t diary
+        python main.py compare 2024-Q1 2024-Q2 -t diary
 
-        diary-slm compare 2024-Q1 2024-Q2 -q "How did my mood change?" -t diary
+        python main.py compare 2024-Q1 2024-Q2 -q "How did my mood change?" -t diary
     """
     processor = _create_processor(db_path, tag)
 
@@ -427,7 +427,7 @@ def interactive(
 
     Example:
 
-        diary-slm interactive 2024-Q1 -t diary
+        python main.py interactive 2024-Q1 -t diary
     """
     processor = _create_processor(db_path, tag)
     chunk = processor.get_chunk_by_name(period, period_type)
@@ -542,11 +542,11 @@ def tokens(
 
     Examples:
 
-        diary-slm tokens 2024-Q1 -t diary
+        python main.py tokens 2024-Q1 -t diary
 
-        diary-slm tokens --all -t diary
+        python main.py tokens --all -t diary
 
-        diary-slm tokens 2024-Q1 -t diary --model qwen-7b
+        python main.py tokens 2024-Q1 -t diary --model qwen-7b
     """
     processor = _create_processor(db_path, tag)
 
@@ -602,7 +602,7 @@ def tokens(
 
         if not chunk:
             console.print(f"[red]Period not found: {period}[/red]")
-            console.print("Use 'diary-slm tokens --all' to see available periods.")
+            console.print("Use 'python main.py tokens --all' to see available periods.")
             sys.exit(1)
 
         console.print(f"\n[bold]Token Count: {period}[/bold]\n")
@@ -645,8 +645,8 @@ def tokens(
 
     else:
         console.print("[yellow]Specify a period or use --all to see all periods.[/yellow]")
-        console.print("Example: diary-slm tokens 2024-Q1 -t diary")
-        console.print("Example: diary-slm tokens --all -t diary")
+        console.print("Example: python main.py tokens 2024-Q1 -t diary")
+        console.print("Example: python main.py tokens --all -t diary")
 
 
 # =============================================================================

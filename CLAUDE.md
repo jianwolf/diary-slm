@@ -13,7 +13,7 @@
 ## Architecture
 
 ```
-src/diary_slm/
+diary_slm/
 ├── __init__.py       # Package exports & version
 ├── constants.py      # Centralized configuration (model presets, token limits, paths)
 ├── exceptions.py     # Custom exception hierarchy (11 exception classes)
@@ -92,16 +92,16 @@ The Bear database is the user's personal data. We MUST:
 pip install -e ".[dev]"
 
 # List available periods (tests Bear connection)
-diary-slm list
+python main.py list
 
 # Run with a specific tag
-diary-slm list -t diary
+python main.py list -t diary
 
 # Check token counts (estimated + exact via model tokenizer)
-diary-slm tokens 2024-Q1 -t diary
+python main.py tokens 2024-Q1 -t diary
 
 # Test analysis (requires mlx-lm model download)
-diary-slm analyze 2024-Q1 -q "Summarize this quarter"
+python main.py analyze 2024-Q1 -q "Summarize this quarter"
 ```
 
 ## Dependencies
