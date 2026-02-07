@@ -86,3 +86,6 @@ dmypy.json
 
 # Model cache (large files)
 models/
+
+# Local data artifacts (may contain private content)
+data/

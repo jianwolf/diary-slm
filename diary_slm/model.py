@@ -33,7 +33,7 @@ from .constants import (
     DEFAULT_TEMPERATURE,
     MODEL_PRESETS,
 )
-from .exceptions import ModelLoadError, ModelNotLoadedError
+from .exceptions import ModelLoadError
 
 if TYPE_CHECKING:
     pass  # Future type imports if needed

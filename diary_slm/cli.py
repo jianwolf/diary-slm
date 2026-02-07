@@ -14,7 +14,9 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -24,10 +26,10 @@ from rich.table import Table
 
 from .analyzer import DiaryAnalyzer, list_analysis_templates
 from .bear_reader import BearReader
-from .constants import DEFAULT_MODEL_ID, MAX_TAGS_TO_DISPLAY, SAFE_CONTEXT_LIMIT
-from .exceptions import DatabaseNotFoundError, PeriodNotFoundError, TemplateNotFoundError
+from .constants import CHARS_PER_TOKEN, DEFAULT_MODEL_ID, MAX_TAGS_TO_DISPLAY, SAFE_CONTEXT_LIMIT
+from .exceptions import DatabaseNotFoundError
 from .model import ModelManager, list_available_models
-from .processor import DiaryProcessor, PeriodType
+from .processor import DiaryProcessor, PeriodType, estimate_tokens
 
 if TYPE_CHECKING:
     pass
@@ -513,6 +515,185 @@ def tags(db_path: str | None) -> None:
 
 
 # =============================================================================
+# Stats Command
+# =============================================================================
+
+# Default keywords to count. Add new entries here to extend stats.
+DEFAULT_STATS_KEYWORDS: tuple[str, ...] = ("diary",)
+
+
+def _filter_notes_by_keyword(notes: list, keyword: str) -> list:
+    """Return notes whose title or content contains keyword (case-insensitive)."""
+    kw = keyword.lower()
+    return [n for n in notes if kw in n.title.lower() or kw in n.content.lower()]
+
+
+@main.command()
+@click.option("--db", "db_path", help="Path to Bear database.")
+@click.option(
+    "--keyword", "-k",
+    multiple=True,
+    help="Additional keywords to count (case-insensitive). Can be repeated.",
+)
+def stats(db_path: str | None, keyword: tuple[str, ...]) -> None:
+    """Show Bear notes statistics with keyword breakdowns and token estimates.
+
+    Displays total note count, token estimates, and per-keyword breakdowns.
+    Results are saved to data/token_stats.json.
+
+    The keyword "diary" is always included. Add more with -k:
+
+        python main.py stats
+
+        python main.py stats -k work -k travel
+    """
+    try:
+        reader = BearReader(db_path=Path(db_path) if db_path else None)
+    except DatabaseNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+    all_notes = reader.get_all_notes()
+    all_chars = sum(n.char_count for n in all_notes)
+    all_tokens = all_chars // CHARS_PER_TOKEN
+
+    console.print("\n[bold]Bear Notes Statistics[/bold]\n")
+    console.print(f"Total notes: [cyan]{len(all_notes):,}[/cyan]")
+    console.print(f"Total characters: [cyan]{all_chars:,}[/cyan]")
+    console.print(f"Estimated tokens: [cyan]{all_tokens:,}[/cyan]")
+
+    # Merge default + user-provided keywords, deduplicated, preserving order
+    seen: set[str] = set()
+    keywords: list[str] = []
+    for kw in (*DEFAULT_STATS_KEYWORDS, *keyword):
+        kw_lower = kw.lower()
+        if kw_lower not in seen:
+            seen.add(kw_lower)
+            keywords.append(kw)
+
+    # Build keyword stats
+    console.print()
+    table = Table(title="Keyword Breakdown")
+    table.add_column("Keyword", style="cyan")
+    table.add_column("Notes", justify="right")
+    table.add_column("Characters", justify="right")
+    table.add_column("Est. Tokens", justify="right")
+    table.add_column("% of Total Notes", justify="right")
+
+    keyword_results: dict[str, dict] = {}
+    for kw in keywords:
+        matched = _filter_notes_by_keyword(all_notes, kw)
+        kw_chars = sum(n.char_count for n in matched)
+        kw_tokens = kw_chars // CHARS_PER_TOKEN
+        pct = (len(matched) / len(all_notes) * 100) if all_notes else 0
+
+        table.add_row(
+            kw, f"{len(matched):,}", f"{kw_chars:,}", f"{kw_tokens:,}", f"{pct:.1f}%",
+        )
+        keyword_results[kw] = {
+            "match": "case-insensitive, title or content",
+            "count": len(matched),
+            "total_characters": kw_chars,
+            "estimated_tokens": kw_tokens,
+        }
+
+    console.print(table)
+
+    # Save to data/token_stats.json
+    data_dir = Path(__file__).resolve().parent.parent / "data"
+    data_dir.mkdir(exist_ok=True)
+    output_path = data_dir / "token_stats.json"
+
+    output = {
+        "generated_at": datetime.now().isoformat(),
+        "all_notes": {
+            "count": len(all_notes),
+            "total_characters": all_chars,
+            "estimated_tokens": all_tokens,
+        },
+        "keywords": keyword_results,
+    }
+
+    with open(output_path, "w") as f:
+        json.dump(output, f, indent=2)
+        f.write("\n")
+
+    console.print(f"\n[dim]Saved to {output_path}[/dim]")
+
+
+# =============================================================================
+# Export Command
+# =============================================================================
+
+
+def _format_notes_as_markdown(notes: list, label: str) -> str:
+    """Format notes as a chronological markdown document."""
+    sorted_notes = sorted(notes, key=lambda n: n.created_at)
+    lines: list[str] = [f"# {label}\n"]
+    current_date: str | None = None
+    for note in sorted_notes:
+        note_date = note.created_at.strftime("%Y-%m-%d")
+        if note_date != current_date:
+            day_name = note.created_at.strftime("%A")
+            lines.append(f"\n## {note_date} ({day_name})\n")
+            current_date = note_date
+        lines.append(f"### {note.title}\n")
+        lines.append(f"{note.content}\n")
+    return "\n".join(lines)
+
+
+@main.command()
+@click.argument("keyword", default="diary")
+@click.option("--db", "db_path", help="Path to Bear database.")
+@click.option(
+    "--output", "-o",
+    help="Output filename (default: <keyword>_notes.md in data/).",
+)
+def export(keyword: str, db_path: str | None, output: str | None) -> None:
+    """Export notes matching a keyword to a markdown file in data/.
+
+    Searches note titles and content case-insensitively, then saves
+    all matching notes chronologically to a .md file.
+
+    Examples:
+
+        python main.py export
+
+        python main.py export diary
+
+        python main.py export work -o work_journal.md
+    """
+    try:
+        reader = BearReader(db_path=Path(db_path) if db_path else None)
+    except DatabaseNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+    all_notes = reader.get_all_notes()
+    matched = _filter_notes_by_keyword(all_notes, keyword)
+
+    if not matched:
+        console.print(f"[yellow]No notes found matching '{keyword}'.[/yellow]")
+        sys.exit(1)
+
+    md_text = _format_notes_as_markdown(matched, f"{keyword} notes")
+
+    data_dir = Path(__file__).resolve().parent.parent / "data"
+    data_dir.mkdir(exist_ok=True)
+    filename = output or f"{keyword.lower()}_notes.md"
+    output_path = data_dir / filename
+
+    with open(output_path, "w") as f:
+        f.write(md_text)
+
+    tokens = estimate_tokens(md_text)
+    console.print(f"\n[bold]Exported {len(matched):,} notes[/bold]")
+    console.print(f"Characters: {len(md_text):,}")
+    console.print(f"Estimated tokens: {tokens:,}")
+    console.print(f"Saved to: [cyan]{output_path}[/cyan]")
+
+
+# =============================================================================
 # Token Counting Command
 # =============================================================================
 
@@ -614,7 +795,7 @@ def tokens(
         console.print(f"  Estimated tokens: {chunk.estimated_tokens:,}")
 
         # Ask if user wants exact count
-        console.print(f"\n[cyan]Loading model for exact token count...[/cyan]")
+        console.print("\n[cyan]Loading model for exact token count...[/cyan]")
 
         try:
             model_mgr = ModelManager(model)

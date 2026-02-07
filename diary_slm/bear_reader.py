@@ -37,6 +37,8 @@ if TYPE_CHECKING:
 
 __all__ = ["Note", "BearReader"]
 
+_TAG_PATTERN = re.compile(r'(?<![#\w])#([a-zA-Z0-9\u4e00-\u9fff][\w\u4e00-\u9fff/]*)')
+
 
 # =============================================================================
 # Data Classes
@@ -132,6 +134,11 @@ def _core_data_to_datetime(timestamp: float | None) -> datetime:
     return CORE_DATA_EPOCH + timedelta(seconds=timestamp)
 
 
+def _datetime_to_core_data(dt: datetime) -> float:
+    """Convert a Python datetime to Apple Core Data timestamp."""
+    return (dt - CORE_DATA_EPOCH).total_seconds()
+
+
 def _extract_tags_from_text(text: str) -> tuple[str, ...]:
     """Extract Bear-style tags from note text.
 
@@ -148,11 +155,19 @@ def _extract_tags_from_text(text: str) -> tuple[str, ...]:
         >>> _extract_tags_from_text("Hello #world #diary/2024")
         ('world', 'diary/2024')
     """
-    # Match #tag but not ## (markdown headers)
-    # Supports: letters, numbers, Chinese characters, and / for nested tags
-    pattern = r'(?<![#\w])#([a-zA-Z0-9\u4e00-\u9fff][\w\u4e00-\u9fff/]*)'
-    matches = re.findall(pattern, text)
-    return tuple(set(matches))
+    # Preserve first-seen order while deduplicating.
+    matches = _TAG_PATTERN.findall(text)
+    return tuple(dict.fromkeys(matches))
+
+
+def _tag_matches(note: Note, tag_lower: str) -> bool:
+    """Check whether a note has a tag (or nested child tag), case-insensitively."""
+    prefix = f"{tag_lower}/"
+    for tag in note.tags:
+        normalized = tag.lower()
+        if normalized == tag_lower or normalized.startswith(prefix):
+            return True
+    return False
 
 
 # =============================================================================
@@ -218,6 +233,57 @@ class BearReader:
         except sqlite3.Error as e:
             raise DatabaseReadError(f"Failed to connect to database: {e}") from e
 
+    def _query_notes(
+        self,
+        *,
+        include_archived: bool = False,
+        include_trashed: bool = False,
+        where_clauses: Sequence[str] = (),
+        params: Sequence[object] = (),
+    ) -> list[Note]:
+        """Query notes with optional SQL-level filtering."""
+        conditions = ["ZTEXT IS NOT NULL", "ZTEXT <> ''"]
+        if not include_trashed:
+            conditions.append("(ZTRASHED = 0 OR ZTRASHED IS NULL)")
+        if not include_archived:
+            conditions.append("(ZARCHIVED = 0 OR ZARCHIVED IS NULL)")
+        conditions.extend(where_clauses)
+
+        query = f"""
+            SELECT
+                ZUNIQUEIDENTIFIER,
+                ZTITLE,
+                ZTEXT,
+                ZCREATIONDATE,
+                ZMODIFICATIONDATE
+            FROM ZSFNOTE
+            WHERE {" AND ".join(conditions)}
+            ORDER BY ZCREATIONDATE ASC
+        """
+
+        conn = self._get_readonly_connection()
+        try:
+            cursor = conn.execute(query, tuple(params))
+            rows = cursor.fetchall()
+        except sqlite3.Error as e:
+            raise DatabaseReadError(f"Failed to query notes: {e}") from e
+        finally:
+            conn.close()
+
+        notes: list[Note] = []
+        for uid, title, text, created, modified in rows:
+            note = Note(
+                id=uid or "",
+                title=title or "Untitled",
+                content=text,
+                created_at=_core_data_to_datetime(created),
+                modified_at=_core_data_to_datetime(modified),
+                tags=_extract_tags_from_text(text),
+            )
+            notes.append(note)
+
+        return notes
+
     def get_all_notes(
         self,
         *,
@@ -243,53 +309,10 @@ class BearReader:
             >>> all_notes = reader.get_all_notes()
             >>> active_notes = reader.get_all_notes(include_archived=False)
         """
-        # Build SELECT query (never INSERT/UPDATE/DELETE)
-        query = """
-            SELECT
-                ZUNIQUEIDENTIFIER,
-                ZTITLE,
-                ZTEXT,
-                ZCREATIONDATE,
-                ZMODIFICATIONDATE
-            FROM ZSFNOTE
-            WHERE 1=1
-        """
-
-        if not include_trashed:
-            query += " AND (ZTRASHED = 0 OR ZTRASHED IS NULL)"
-        if not include_archived:
-            query += " AND (ZARCHIVED = 0 OR ZARCHIVED IS NULL)"
-
-        query += " ORDER BY ZCREATIONDATE ASC"
-
-        conn = self._get_readonly_connection()
-        try:
-            cursor = conn.execute(query)
-            rows = cursor.fetchall()
-        except sqlite3.Error as e:
-            raise DatabaseReadError(f"Failed to query notes: {e}") from e
-        finally:
-            conn.close()
-
-        notes: list[Note] = []
-        for row in rows:
-            uid, title, text, created, modified = row
-
-            # Skip notes with no content
-            if not text:
-                continue
-
-            note = Note(
-                id=uid or "",
-                title=title or "Untitled",
-                content=text,
-                created_at=_core_data_to_datetime(created),
-                modified_at=_core_data_to_datetime(modified),
-                tags=_extract_tags_from_text(text),
-            )
-            notes.append(note)
-
-        return notes
+        return self._query_notes(
+            include_archived=include_archived,
+            include_trashed=include_trashed,
+        )
 
     def get_notes_by_tag(self, tag: str) -> list[Note]:
         """Get notes containing a specific tag.
@@ -308,17 +331,17 @@ class BearReader:
             >>> diary_notes = reader.get_notes_by_tag("diary")
             >>> work_notes = reader.get_notes_by_tag("work")
         """
-        all_notes = self.get_all_notes()
-        tag_lower = tag.lower()
+        tag_clean = tag.strip().lstrip("#")
+        if not tag_clean:
+            return []
 
-        return [
-            note
-            for note in all_notes
-            if any(
-                t.lower() == tag_lower or t.lower().startswith(f"{tag_lower}/")
-                for t in note.tags
-            )
-        ]
+        tag_lower = tag_clean.lower()
+        # Coarse SQL pre-filter to avoid scanning all notes.
+        notes = self._query_notes(
+            where_clauses=("lower(ZTEXT) LIKE ?",),
+            params=(f"%#{tag_lower}%",),
+        )
+        return [note for note in notes if _tag_matches(note, tag_lower)]
 
     def get_notes_by_date_range(
         self,
@@ -348,17 +371,33 @@ class BearReader:
             ...     tag="diary",
             ... )
         """
-        notes = self.get_notes_by_tag(tag) if tag else self.get_all_notes()
+        clauses: list[str] = []
+        params: list[object] = []
 
-        filtered: list[Note] = []
-        for note in notes:
-            if start_date and note.created_at < start_date:
-                continue
-            if end_date and note.created_at > end_date:
-                continue
-            filtered.append(note)
+        if start_date:
+            clauses.append("ZCREATIONDATE >= ?")
+            params.append(_datetime_to_core_data(start_date))
+        if end_date:
+            clauses.append("ZCREATIONDATE <= ?")
+            params.append(_datetime_to_core_data(end_date))
 
-        return filtered
+        tag_lower: str | None = None
+        if tag:
+            tag_clean = tag.strip().lstrip("#")
+            if not tag_clean:
+                return []
+            tag_lower = tag_clean.lower()
+            clauses.append("lower(ZTEXT) LIKE ?")
+            params.append(f"%#{tag_lower}%")
+
+        notes = self._query_notes(
+            where_clauses=tuple(clauses),
+            params=tuple(params),
+        )
+
+        if tag_lower is None:
+            return notes
+        return [note for note in notes if _tag_matches(note, tag_lower)]
 
     def get_available_tags(self) -> list[tuple[str, int]]:
         """Get all tags with their usage counts.
@@ -395,11 +434,31 @@ class BearReader:
             >>> start, end = reader.get_date_range(tag="diary")
             >>> print(f"Diary spans {start} to {end}")
         """
-        notes = self.get_notes_by_tag(tag) if tag else self.get_all_notes()
+        if tag:
+            notes = self.get_notes_by_tag(tag)
+            if not notes:
+                now = datetime.now()
+                return (now, now)
+            return (notes[0].created_at, notes[-1].created_at)
 
-        if not notes:
+        query = """
+            SELECT MIN(ZCREATIONDATE), MAX(ZCREATIONDATE)
+            FROM ZSFNOTE
+            WHERE ZTEXT IS NOT NULL
+                AND ZTEXT <> ''
+                AND (ZTRASHED = 0 OR ZTRASHED IS NULL)
+                AND (ZARCHIVED = 0 OR ZARCHIVED IS NULL)
+        """
+        conn = self._get_readonly_connection()
+        try:
+            min_ts, max_ts = conn.execute(query).fetchone()
+        except sqlite3.Error as e:
+            raise DatabaseReadError(f"Failed to query date range: {e}") from e
+        finally:
+            conn.close()
+
+        if min_ts is None or max_ts is None:
             now = datetime.now()
             return (now, now)
 
-        dates = [note.created_at for note in notes]
-        return (min(dates), max(dates))
+        return (_core_data_to_datetime(min_ts), _core_data_to_datetime(max_ts))

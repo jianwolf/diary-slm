@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from .constants import (
     CHARS_PER_TOKEN,
@@ -205,7 +205,7 @@ def _format_notes_for_prompt(notes: list[Note], period_name: str) -> str:
     that helps the LLM understand temporal relationships.
 
     Args:
-        notes: List of notes to format.
+        notes: List of notes to format. Expected to already be in chronological order.
         period_name: Name of the period for the header.
 
     Returns:
@@ -226,11 +226,8 @@ def _format_notes_for_prompt(notes: list[Note], period_name: str) -> str:
 
     lines: list[str] = [f"=== Diary Entries: {period_name} ===\n"]
 
-    # Sort notes chronologically
-    sorted_notes = sorted(notes, key=lambda n: n.created_at)
-
     current_date: str | None = None
-    for note in sorted_notes:
+    for note in notes:
         note_date = note.created_at.strftime("%Y-%m-%d")
 
         # Add date header when date changes
@@ -288,6 +285,9 @@ class DiaryProcessor:
         """
         # Store sorted copy to avoid modifying input
         self._notes: list[Note] = sorted(notes, key=lambda n: n.created_at)
+        self._chunks_cache: dict[PeriodType, tuple[DiaryChunk, ...]] = {}
+        self._period_index_cache: dict[PeriodType, dict[str, DiaryChunk]] = {}
+        self._total_stats_cache: dict[str, int | tuple[datetime, datetime] | None] | None = None
 
     @property
     def notes(self) -> list[Note]:
@@ -313,7 +313,7 @@ class DiaryProcessor:
         """
         if period_type not in VALID_PERIOD_TYPES:
             raise InvalidPeriodTypeError(period_type)
-        return period_type  # type: ignore
+        return cast(PeriodType, period_type)
 
     def get_chunks_by_period(
         self,
@@ -343,6 +343,9 @@ class DiaryProcessor:
             ...     print(f"{chunk.period_name}: {chunk.estimated_tokens:,} tokens")
         """
         validated_type = self._validate_period_type(period_type)
+        cached = self._chunks_cache.get(validated_type)
+        if cached is not None:
+            return list(cached)
 
         if not self._notes:
             return []
@@ -362,21 +365,24 @@ class DiaryProcessor:
             formatted = _format_notes_for_prompt(notes_in_period, period_name)
             tokens = estimate_tokens(formatted)
 
-            # Calculate date range
-            dates = [n.created_at for n in notes_in_period]
-
             chunk = DiaryChunk(
                 period_name=period_name,
                 period_type=validated_type,
-                start_date=min(dates),
-                end_date=max(dates),
+                start_date=notes_in_period[0].created_at,
+                end_date=notes_in_period[-1].created_at,
                 note_count=len(notes_in_period),
                 formatted_text=formatted,
                 estimated_tokens=tokens,
             )
             chunks.append(chunk)
 
-        return chunks
+        chunks_tuple = tuple(chunks)
+        self._chunks_cache[validated_type] = chunks_tuple
+        self._period_index_cache[validated_type] = {
+            chunk.period_name: chunk
+            for chunk in chunks_tuple
+        }
+        return list(chunks_tuple)
 
     def get_chunk_by_name(
         self,
@@ -405,14 +411,14 @@ class DiaryProcessor:
             >>> if chunk:
             ...     print(chunk.formatted_text)
         """
-        chunks = self.get_chunks_by_period(period_type)
-
-        for chunk in chunks:
-            if chunk.period_name == period_name:
-                return chunk
+        validated_type = self._validate_period_type(period_type)
+        self.get_chunks_by_period(validated_type)
+        chunk = self._period_index_cache.get(validated_type, {}).get(period_name)
+        if chunk is not None:
+            return chunk
 
         if raise_if_missing:
-            available = [c.period_name for c in chunks]
+            available = list(self._period_index_cache.get(validated_type, {}).keys())
             raise PeriodNotFoundError(period_name, available)
 
         return None
@@ -456,24 +462,28 @@ class DiaryProcessor:
             >>> stats = processor.get_total_stats()
             >>> print(f"Total tokens: {stats['estimated_tokens']:,}")
         """
+        if self._total_stats_cache is not None:
+            return self._total_stats_cache.copy()
+
         if not self._notes:
-            return {
+            empty_stats = {
                 "total_notes": 0,
                 "total_chars": 0,
                 "estimated_tokens": 0,
                 "date_range": None,
             }
+            self._total_stats_cache = empty_stats
+            return empty_stats.copy()
 
         total_chars = sum(n.char_count for n in self._notes)
-        combined_content = "".join(n.content for n in self._notes)
-        dates = [n.created_at for n in self._notes]
-
-        return {
+        stats = {
             "total_notes": len(self._notes),
             "total_chars": total_chars,
-            "estimated_tokens": estimate_tokens(combined_content),
-            "date_range": (min(dates), max(dates)),
+            "estimated_tokens": total_chars // CHARS_PER_TOKEN,
+            "date_range": (self._notes[0].created_at, self._notes[-1].created_at),
         }
+        self._total_stats_cache = stats
+        return stats.copy()
 
     def suggest_period_type(
         self,
