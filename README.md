@@ -27,7 +27,7 @@ Your diary (say, 500k characters/year) is roughly 125k tokens (at ~4 chars/token
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/diary-slm.git
+git clone https://github.com/jianwolf/diary-slm.git
 cd diary-slm
 pip install -e .
 ```
