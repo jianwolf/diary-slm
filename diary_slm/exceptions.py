@@ -11,6 +11,8 @@ Example:
         print(f"diary-slm error: {e}")
 """
 
+from .constants import MAX_PERIODS_TO_SUGGEST
+
 
 class DiarySlmError(Exception):
     """Base exception for all diary-slm errors.
@@ -128,9 +130,11 @@ class PeriodNotFoundError(PeriodError):
         if message is None:
             message = f"Period not found: {period_name}"
             if available_periods:
-                message += f"\nAvailable periods: {', '.join(available_periods[:10])}"
-                if len(available_periods) > 10:
-                    message += f" (and {len(available_periods) - 10} more)"
+                preview = available_periods[:MAX_PERIODS_TO_SUGGEST]
+                message += f"\nAvailable periods: {', '.join(preview)}"
+                if len(available_periods) > MAX_PERIODS_TO_SUGGEST:
+                    remaining = len(available_periods) - MAX_PERIODS_TO_SUGGEST
+                    message += f" (and {remaining} more)"
 
         super().__init__(message)
 

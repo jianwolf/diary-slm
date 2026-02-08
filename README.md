@@ -58,7 +58,7 @@ Suggested period type: quarter
 
 Available Periods (quarter)
 ┏━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━┓
-┃ Period   ┃ Notes ┃ Est. Tokens ┃ Fits 128k?┃
+┃ Period   ┃ Notes ┃ Est. Tokens ┃ Fits 100k?┃
 ┡━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━┩
 │ 2024-Q1  │    90 │      31,250 │    Yes    │
 │ 2024-Q2  │    91 │      32,000 │    Yes    │
@@ -66,6 +66,8 @@ Available Periods (quarter)
 │ 2024-Q4  │    92 │      31,250 │    Yes    │
 └──────────┴───────┴─────────────┴───────────┘
 ```
+
+`list` uses a safe budget of ~100k tokens to leave room for prompts and generated output.
 
 ### 2. Analyze a period
 
@@ -158,6 +160,8 @@ python main.py interactive --help  # Interactive session
 python main.py models              # List model presets
 python main.py templates           # List analysis templates
 python main.py tags                # List tags in Bear
+python main.py stats               # Note/token stats with keyword breakdown
+python main.py export diary        # Export notes matching a keyword to markdown
 python main.py tokens              # Count tokens (estimated + exact)
 ```
 

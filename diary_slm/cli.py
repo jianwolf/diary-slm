@@ -26,13 +26,21 @@ from rich.table import Table
 
 from .analyzer import DiaryAnalyzer, list_analysis_templates
 from .bear_reader import BearReader
-from .constants import CHARS_PER_TOKEN, DEFAULT_MODEL_ID, MAX_TAGS_TO_DISPLAY, SAFE_CONTEXT_LIMIT
-from .exceptions import DatabaseNotFoundError
+from .constants import (
+    CHARS_PER_TOKEN,
+    CONTEXT_LIMIT_32K,
+    CONTEXT_LIMIT_128K,
+    DEFAULT_MAX_GENERATION_TOKENS,
+    DEFAULT_MODEL_ID,
+    MAX_TAGS_TO_DISPLAY,
+    SAFE_CONTEXT_LIMIT,
+)
+from .exceptions import DatabaseNotFoundError, ModelLoadError
 from .model import ModelManager, list_available_models
 from .processor import DiaryProcessor, PeriodType, estimate_tokens
 
 if TYPE_CHECKING:
-    pass
+    from .bear_reader import Note
 
 # Rich console for formatted output
 console = Console()
@@ -80,6 +88,20 @@ def _create_processor(db_path: str | None, tag: str | None) -> DiaryProcessor:
 def _format_token_count(tokens: int) -> str:
     """Format token count with thousands separator."""
     return f"{tokens:,}"
+
+
+def _get_data_dir() -> Path:
+    """Get or create the project data directory."""
+    data_dir = Path(__file__).resolve().parent.parent / "data"
+    data_dir.mkdir(exist_ok=True)
+    return data_dir
+
+
+CONTEXT_LIMITS_DISPLAY: tuple[tuple[str, int], ...] = (
+    ("32K", CONTEXT_LIMIT_32K),
+    ("128K", CONTEXT_LIMIT_128K),
+    ("200K", 200_000),
+)
 
 
 # =============================================================================
@@ -174,10 +196,11 @@ def list_cmd(
     table.add_column("Period", style="cyan")
     table.add_column("Notes", justify="right")
     table.add_column("Est. Tokens", justify="right")
-    table.add_column("Fits 128k?", justify="center")
+    safe_limit_label = f"Fits {SAFE_CONTEXT_LIMIT // 1_000}k safe?"
+    table.add_column(safe_limit_label, justify="center")
 
     for name, count, tokens in periods:
-        fits = "[green]Yes[/green]" if tokens < SAFE_CONTEXT_LIMIT else "[red]No[/red]"
+        fits = "[green]Yes[/green]" if tokens <= SAFE_CONTEXT_LIMIT else "[red]No[/red]"
         table.add_row(name, str(count), _format_token_count(tokens), fits)
 
     console.print(table)
@@ -210,7 +233,7 @@ def list_cmd(
 )
 @click.option(
     "--max-tokens",
-    default=4096,
+    default=DEFAULT_MAX_GENERATION_TOKENS,
     show_default=True,
     help="Max tokens to generate.",
 )
@@ -271,7 +294,12 @@ def analyze(
     default="quarter",
 )
 @click.option("--model", "-m", default=DEFAULT_MODEL_ID, help="Model to use.")
-@click.option("--max-tokens", default=4096, help="Max tokens to generate.")
+@click.option(
+    "--max-tokens",
+    default=DEFAULT_MAX_GENERATION_TOKENS,
+    show_default=True,
+    help="Max tokens to generate.",
+)
 def template(
     period: str,
     template_name: str,
@@ -342,7 +370,12 @@ def template(
     default="quarter",
 )
 @click.option("--model", "-m", default=DEFAULT_MODEL_ID, help="Model to use.")
-@click.option("--max-tokens", default=4096, help="Max tokens to generate.")
+@click.option(
+    "--max-tokens",
+    default=DEFAULT_MAX_GENERATION_TOKENS,
+    show_default=True,
+    help="Max tokens to generate.",
+)
 def compare(
     period1: str,
     period2: str,
@@ -408,7 +441,12 @@ def compare(
     default="quarter",
 )
 @click.option("--model", "-m", default=DEFAULT_MODEL_ID, help="Model to use.")
-@click.option("--max-tokens", default=4096, help="Max tokens to generate.")
+@click.option(
+    "--max-tokens",
+    default=DEFAULT_MAX_GENERATION_TOKENS,
+    show_default=True,
+    help="Max tokens to generate.",
+)
 def interactive(
     period: str,
     db_path: str | None,
@@ -522,7 +560,7 @@ def tags(db_path: str | None) -> None:
 DEFAULT_STATS_KEYWORDS: tuple[str, ...] = ("diary",)
 
 
-def _filter_notes_by_keyword(notes: list, keyword: str) -> list:
+def _filter_notes_by_keyword(notes: list[Note], keyword: str) -> list[Note]:
     """Return notes whose title or content contains keyword (case-insensitive)."""
     kw = keyword.lower()
     return [n for n in notes if kw in n.title.lower() or kw in n.content.lower()]
@@ -580,7 +618,7 @@ def stats(db_path: str | None, keyword: tuple[str, ...]) -> None:
     table.add_column("Est. Tokens", justify="right")
     table.add_column("% of Total Notes", justify="right")
 
-    keyword_results: dict[str, dict] = {}
+    keyword_results: dict[str, dict[str, str | int]] = {}
     for kw in keywords:
         matched = _filter_notes_by_keyword(all_notes, kw)
         kw_chars = sum(n.char_count for n in matched)
@@ -600,9 +638,7 @@ def stats(db_path: str | None, keyword: tuple[str, ...]) -> None:
     console.print(table)
 
     # Save to data/token_stats.json
-    data_dir = Path(__file__).resolve().parent.parent / "data"
-    data_dir.mkdir(exist_ok=True)
-    output_path = data_dir / "token_stats.json"
+    output_path = _get_data_dir() / "token_stats.json"
 
     output = {
         "generated_at": datetime.now().isoformat(),
@@ -614,7 +650,7 @@ def stats(db_path: str | None, keyword: tuple[str, ...]) -> None:
         "keywords": keyword_results,
     }
 
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2)
         f.write("\n")
 
@@ -626,7 +662,7 @@ def stats(db_path: str | None, keyword: tuple[str, ...]) -> None:
 # =============================================================================
 
 
-def _format_notes_as_markdown(notes: list, label: str) -> str:
+def _format_notes_as_markdown(notes: list[Note], label: str) -> str:
     """Format notes as a chronological markdown document."""
     sorted_notes = sorted(notes, key=lambda n: n.created_at)
     lines: list[str] = [f"# {label}\n"]
@@ -678,12 +714,10 @@ def export(keyword: str, db_path: str | None, output: str | None) -> None:
 
     md_text = _format_notes_as_markdown(matched, f"{keyword} notes")
 
-    data_dir = Path(__file__).resolve().parent.parent / "data"
-    data_dir.mkdir(exist_ok=True)
     filename = output or f"{keyword.lower()}_notes.md"
-    output_path = data_dir / filename
+    output_path = _get_data_dir() / filename
 
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         f.write(md_text)
 
     tokens = estimate_tokens(md_text)
@@ -707,7 +741,13 @@ def export(keyword: str, db_path: str | None, output: str | None) -> None:
     type=click.Choice(["month", "quarter", "half_year", "year"]),
     default="quarter",
 )
-@click.option("--model", "-m", default=DEFAULT_MODEL_ID, help="Model for accurate tokenization.")
+@click.option(
+    "--model",
+    "-m",
+    default=DEFAULT_MODEL_ID,
+    show_default=True,
+    help="Model for accurate tokenization.",
+)
 @click.option("--all", "show_all", is_flag=True, help="Show token counts for all periods.")
 def tokens(
     period: str | None,
@@ -773,7 +813,7 @@ def tokens(
 
         # Context fit summary
         console.print("\n[bold]Context Fit Summary[/bold]")
-        for limit_name, limit in [("128K", 128_000), ("200K", 200_000)]:
+        for limit_name, limit in CONTEXT_LIMITS_DISPLAY:
             fits = sum(1 for c in chunks if c.estimated_tokens <= limit * 0.8)
             console.print(f"  Periods fitting {limit_name} context: {fits}/{len(chunks)}")
 
@@ -812,7 +852,7 @@ def tokens(
 
             # Context fit check
             console.print("\n[cyan]Context Fit:[/cyan]")
-            for limit_name, limit in [("128K", 128_000), ("200K", 200_000)]:
+            for limit_name, limit in CONTEXT_LIMITS_DISPLAY:
                 safe_limit = int(limit * 0.8)  # 80% to leave room for prompt/response
                 if exact_tokens <= safe_limit:
                     console.print(f"  {limit_name}: [green]Fits[/green] ({exact_tokens:,} / {safe_limit:,} safe limit)")
@@ -820,7 +860,7 @@ def tokens(
                     over = exact_tokens - safe_limit
                     console.print(f"  {limit_name}: [red]Exceeds by {over:,} tokens[/red]")
 
-        except Exception as e:
+        except ModelLoadError as e:
             console.print(f"[yellow]Could not load model for exact count: {e}[/yellow]")
             console.print("Using estimated token count only.")
 

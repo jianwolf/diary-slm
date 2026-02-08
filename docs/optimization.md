@@ -31,6 +31,19 @@ This repository processes large diary datasets, so avoid full-data scans and rep
 - Cached computed total stats for reuse.
 - **Impact**: Avoids large temporary strings and repeated recomputation.
 
+### 4. Maintainability and dead code cleanup
+- **Area**: `diary_slm/analyzer.py`, `diary_slm/cli.py`, `diary_slm/exceptions.py`
+- **Problem**:
+- Unused helper (`get_template_names`) and duplicated literals (`4096`, `128_000`) increased drift risk.
+- CLI had repeated `data/` directory setup and broad exception handling in token counting.
+- **Change**:
+- Removed unused `get_template_names()` from analyzer.
+- Replaced hardcoded CLI defaults/limits with constants and added typed helper signatures.
+- Introduced `_get_data_dir()` to centralize output path creation.
+- Narrowed tokenization error handling from `except Exception` to `ModelLoadError`.
+- Wired `MAX_PERIODS_TO_SUGGEST` into `PeriodNotFoundError` preview logic.
+- **Impact**: Less dead code, safer error handling, and fewer duplicated values to maintain.
+
 ## Remaining High-Value Opportunities
 - Add targeted tests/benchmarks for large datasets (`10k+` notes) to quantify gains.
 - Optimize keyword stats path in CLI to avoid repeated lowercase scans per keyword.

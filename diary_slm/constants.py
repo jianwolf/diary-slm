@@ -82,15 +82,6 @@ VALID_PERIOD_TYPES: Final[tuple[str, ...]] = ("month", "quarter", "half_year", "
 # Default period type (quarter provides good balance of context and specificity)
 DEFAULT_PERIOD_TYPE: Final[str] = "quarter"
 
-# Approximate tokens per period type (based on typical diary volume)
-# These are rough estimates for a user writing ~1400 chars/day
-ESTIMATED_TOKENS_PER_PERIOD: Final[dict[str, int]] = {
-    "month": 10_000,
-    "quarter": 32_000,
-    "half_year": 64_000,
-    "year": 125_000,
-}
-
 
 # =============================================================================
 # Display Configuration

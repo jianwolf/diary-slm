@@ -151,15 +151,6 @@ def list_analysis_templates() -> dict[str, str]:
     }
 
 
-def get_template_names() -> list[str]:
-    """Get list of available template names.
-
-    Returns:
-        List of template names.
-    """
-    return list(ANALYSIS_TEMPLATES.keys())
-
-
 # =============================================================================
 # Analyzer Class
 # =============================================================================

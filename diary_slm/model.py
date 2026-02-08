@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterator
+from typing import Iterator
 
 from .constants import (
     DEFAULT_MAX_GENERATION_TOKENS,
@@ -34,9 +34,6 @@ from .constants import (
     MODEL_PRESETS,
 )
 from .exceptions import ModelLoadError
-
-if TYPE_CHECKING:
-    pass  # Future type imports if needed
 
 __all__ = [
     "ModelManager",
